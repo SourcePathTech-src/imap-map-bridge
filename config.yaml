@@ -1,0 +1,18 @@
+imap:
+  user: "your-imap-username"
+  password: "your-imap-password"
+  host: "imap.your-email-provider.com"
+  port: 993
+  tls: true
+smtp:
+  host: "smtp.your-email-provider.com"
+  port: 465
+  secure: true
+  auth:
+    user: "your-smtp-username"
+    pass: "your-smtp-password"
+matrix:
+  homeserverUrl: "http://localhost:8008"
+  domain: "localhost"
+  roomId: "!your-matrix-room-id:localhost"
+  botUserId: "@mailbot:localhost"
