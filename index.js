@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import imaps from "imap-simple";
 import fs from "fs";
 import yaml from "js-yaml";
+import { parseEmail } from "./parse-email.js";
 
 // Load config with logging
 let config;
@@ -137,15 +138,15 @@ function checkEmail() {
         return connection
           .search(searchCriteria, fetchOptions)
           .then((messages) => {
-            // TODO: Decode email content
             messages.forEach((message) => {
               if (message.parts) {
                 const textPart = message.parts.find(
                   (part) => part.which === "TEXT",
                 );
                 if (textPart) {
+                  const { plainText } = parseEmail(textPart.body)
                   const intent = bridge.getIntent(config.matrix.botUserId);
-                  intent.sendText(config.matrix.roomId, textPart.body);
+                  intent.sendText(config.matrix.roomId, plainText);
                 } else {
                   console.log("No text part found for message:", message);
                 }
