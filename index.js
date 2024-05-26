@@ -53,7 +53,7 @@ new Cli({
     reg.addRegexPattern("users", "@mail_.*", true);
     callback(reg);
   },
-  run: function (port) {
+  run: function (port, config) {
     bridge = new Bridge({
       homeserverUrl: config.matrix.homeserverUrl,
       domain: config.matrix.domain,
@@ -143,9 +143,17 @@ function checkEmail() {
                 const textPart = message.parts.find(
                   (part) => part.which === "TEXT",
                 );
-                if (textPart) {
-                  const { plainText } = parseEmail(textPart.body)
-                  const intent = bridge.getIntent(config.matrix.botUserId);
+                const headerPart = message.parts.find(
+                  (part) =>
+                    part.which === "HEADER.FIELDS (FROM TO SUBJECT DATE)",
+                );
+                if (textPart && headerPart) {
+                  const headers = Imap.parseHeader(headerPart.body);
+                  const emailFrom = headers.from
+                    ? headers.from[0].replace('@', '_')
+                    : "unknown_sender";
+                  const { plainText } = parseEmail(textPart.body);
+                  const intent = bridge.getIntent('@mail_' + emailFrom + ":" + config.matrix.domain);
                   intent.sendText(config.matrix.roomId, plainText);
                 } else {
                   console.log("No text part found for message:", message);
