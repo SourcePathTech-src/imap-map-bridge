@@ -1,0 +1,18 @@
+imap:
+  user: "user@example.com"
+  password: "my-app-password"
+  host: "imap.gmail.com" # This will change according to your provider
+  port: 993
+  tls: true
+smtp:
+  host: "smtp.gmail.com" # This will change according to your provider
+  port: 465
+  secure: true
+  auth:
+    user: "user@example.com"
+    pass: "my-app-password"
+matrix:
+  homeserverUrl: "https://matrix.example.com"
+  domain: "localhost"
+  roomId: "!your-room-id:example.com"
+  botUserId: "@mailbot:example.com"

@@ -1,19 +1,32 @@
-const {
-  Cli,
-  Bridge,
-  AppServiceRegistration,
-} = require("matrix-appservice-bridge");
-const nodemailer = require("nodemailer");
-const imaps = require("imap-simple");
-const fs = require("fs");
-const yaml = require("js-yaml");
+import { Cli, Bridge, AppServiceRegistration } from "matrix-appservice-bridge";
+import nodemailer from "nodemailer";
+import imaps from "imap-simple";
+import fs from "fs";
+import yaml from "js-yaml";
 
-// Load config
-const config = yaml.load(fs.readFileSync("config.yaml", "utf8"));
+// Load config with logging
+let config;
+try {
+  config = yaml.load(fs.readFileSync("config.yaml", "utf8"));
+  console.log("Configuration loaded successfully:", config);
+} catch (err) {
+  console.error("Failed to load configuration:", err);
+  process.exit(1);
+}
+
+if (!config || !config.matrix) {
+  console.error(
+    "Invalid configuration structure. 'matrix' section is missing.",
+  );
+  process.exit(1);
+}
 
 // Set up IMAP client
 const imapConfig = {
-  imap: config.imap,
+  imap: {
+    ...config.imap,
+    tlsOptions: { rejectUnauthorized: false }, // Add this line to ignore self-signed certificates
+  },
 };
 
 // Set up SMTP client
@@ -39,7 +52,7 @@ new Cli({
     reg.addRegexPattern("users", "@mail_.*", true);
     callback(reg);
   },
-  run: function (port, config) {
+  run: function (port) {
     bridge = new Bridge({
       homeserverUrl: config.matrix.homeserverUrl,
       domain: config.matrix.domain,
@@ -49,6 +62,7 @@ new Cli({
           return {}; // auto-provision users with no additional data
         },
         onEvent: function (request, context) {
+          console.log("Received event:", request.getData());
           const event = request.getData();
           if (
             event.type !== "m.room.message" ||
@@ -57,9 +71,11 @@ new Cli({
           ) {
             return;
           }
+
+          console.log("Body content:", event.content.body);
           const mailOptions = {
             from: config.smtp.auth.user,
-            to: "recipient@example.com", // Replace with actual recipient
+            to: "target@yopmail.com", // This needs to be configurable
             subject: "Matrix Message",
             text: event.content.body,
           };
@@ -73,12 +89,41 @@ new Cli({
         },
       },
     });
-    console.log("Matrix-side listening on port %s", port);
-    bridge.run(port);
+
+    bridge
+      .run(port)
+      .then(() => {
+        console.log("Matrix-side listening on port %s", port);
+
+        // Ensure the bot joins the room and sends a greeting message
+        bridge
+          .getIntent(config.matrix.botUserId)
+          .join(config.matrix.roomId)
+          .then(() => {
+            console.log(
+              `Bot ${config.matrix.botUserId} has joined the room ${config.matrix.roomId}`,
+            );
+            return bridge
+              .getIntent(config.matrix.botUserId)
+              .sendText(
+                config.matrix.roomId,
+                "Hello! The bridge is now up and running.",
+              );
+          })
+          .then(() => {
+            console.log("Greeting message sent to the room.");
+          })
+          .catch((err) => {
+            console.error(`Failed to join room or send greeting: ${err}`);
+          });
+      })
+      .catch((err) => {
+        console.error(`Failed to initialize the bridge: ${err}`);
+      });
   },
 }).run();
 
-// Set up IMAP client to check for new emails
+// IMAP Client to check for new emails
 function checkEmail() {
   imaps
     .connect(imapConfig)
@@ -92,11 +137,21 @@ function checkEmail() {
         return connection
           .search(searchCriteria, fetchOptions)
           .then((messages) => {
+            // TODO: Decode email content
             messages.forEach((message) => {
-              const parts = imaps.getParts(message.attributes.struct);
-              const email = parts.filter((part) => part.which === "TEXT")[0];
-              const intent = bridge.getIntent(config.matrix.botUserId);
-              intent.sendText(config.matrix.roomId, email.body);
+              if (message.parts) {
+                const textPart = message.parts.find(
+                  (part) => part.which === "TEXT",
+                );
+                if (textPart) {
+                  const intent = bridge.getIntent(config.matrix.botUserId);
+                  intent.sendText(config.matrix.roomId, textPart.body);
+                } else {
+                  console.log("No text part found for message:", message);
+                }
+              } else {
+                console.log("No parts found for message:", message);
+              }
             });
           });
       });
@@ -106,5 +161,5 @@ function checkEmail() {
     });
 }
 
-// Check for new emails every minute
+// Checking for new emails every minute
 setInterval(checkEmail, 60000);

@@ -7,5 +7,11 @@
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "imap-simple": "^5.1.0",
+    "matrix-appservice-bridge": "^10.1.0",
+    "nodemailer": "^6.9.13",
+    "request": "^2.88.2"
   }
 }
