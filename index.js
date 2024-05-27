@@ -6,7 +6,6 @@ import fs from "fs";
 import yaml from "js-yaml";
 import { parseEmail } from "./parse-email.js";
 
-// Load config with logging
 let config;
 try {
   config = yaml.load(fs.readFileSync("config.yaml", "utf8"));
@@ -65,7 +64,7 @@ new Cli({
       registration: "mail-registration.yaml",
       controller: {
         onUserQuery: function (queriedUser) {
-          return {}; // auto-provision users with no additional data
+          return {};
         },
         onEvent: function (request, context) {
           console.log("Received event:", request.getData());
@@ -81,7 +80,7 @@ new Cli({
           console.log("Body content:", event.content.body);
           const mailOptions = {
             from: config.smtp.auth.user,
-            to: "target@yopmail.com", // Make configurable if needed
+            to: "target@yopmail.com", // FIXME: Make configurable
             subject: "Matrix Message",
             text: event.content.body,
           };
@@ -201,7 +200,7 @@ function checkEmail() {
   });
 
   imap.once("error", (err) => {
-    console.log(err);
+    console.log("IMAP error:", err);
   });
 
   imap.once("end", () => {
@@ -213,3 +212,13 @@ function checkEmail() {
 
 // Checking for new emails every minute
 setInterval(checkEmail, 60000);
+
+// retry logic for connection errors
+process.on("uncaughtException", (err) => {
+  if (err.code === "ECONNRESET") {
+    console.log("Connection reset by peer, retrying...");
+    checkEmail();
+  } else {
+    console.error("Unhandled error:", err);
+  }
+});
