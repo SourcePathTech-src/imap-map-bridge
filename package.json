@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "atob": "^2.1.2",
-    "imap-simple": "^5.1.0",
+    "mailparser": "^3.7.1",
     "matrix-appservice-bridge": "^10.1.0",
+    "node-imap": "^0.9.6",
     "nodemailer": "^6.9.13",
     "request": "^2.88.2"
   }

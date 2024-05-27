@@ -1,6 +1,7 @@
 import { Cli, Bridge, AppServiceRegistration } from "matrix-appservice-bridge";
 import nodemailer from "nodemailer";
-import imaps from "imap-simple";
+import Imap from "node-imap";
+import { simpleParser } from "mailparser";
 import fs from "fs";
 import yaml from "js-yaml";
 import { parseEmail } from "./parse-email.js";
@@ -24,11 +25,15 @@ if (!config || !config.matrix) {
 
 // Set up IMAP client
 const imapConfig = {
-  imap: {
-    ...config.imap,
-    tlsOptions: { rejectUnauthorized: false }, // Add this line to ignore self-signed certificates
-  },
+  user: config.imap.user,
+  password: config.imap.password,
+  host: config.imap.host,
+  port: config.imap.port,
+  tls: config.imap.tls,
+  tlsOptions: { rejectUnauthorized: false },
 };
+
+const imap = new Imap(imapConfig);
 
 // Set up SMTP client
 const transporter = nodemailer.createTransport({
@@ -53,7 +58,7 @@ new Cli({
     reg.addRegexPattern("users", "@mail_.*", true);
     callback(reg);
   },
-  run: function (port, config) {
+  run: function (port) {
     bridge = new Bridge({
       homeserverUrl: config.matrix.homeserverUrl,
       domain: config.matrix.domain,
@@ -76,7 +81,7 @@ new Cli({
           console.log("Body content:", event.content.body);
           const mailOptions = {
             from: config.smtp.auth.user,
-            to: "target@yopmail.com", // This needs to be configurable
+            to: "target@yopmail.com", // Make configurable if needed
             subject: "Matrix Message",
             text: event.content.body,
           };
@@ -96,10 +101,15 @@ new Cli({
       .then(() => {
         console.log("Matrix-side listening on port %s", port);
 
-        // Ensure the bot joins the room and sends a greeting message
         bridge
           .getIntent(config.matrix.botUserId)
-          .join(config.matrix.roomId)
+          .ensureRegistered()
+          .then(() => {
+            console.log(`Bot ${config.matrix.botUserId} has been registered.`);
+            return bridge
+              .getIntent(config.matrix.botUserId)
+              .join(config.matrix.roomId);
+          })
           .then(() => {
             console.log(
               `Bot ${config.matrix.botUserId} has joined the room ${config.matrix.roomId}`,
@@ -115,7 +125,27 @@ new Cli({
             console.log("Greeting message sent to the room.");
           })
           .catch((err) => {
-            console.error(`Failed to join room or send greeting: ${err}`);
+            if (err.errcode === "M_USER_IN_USE") {
+              console.log(
+                `User ${config.matrix.botUserId} is already registered.`,
+              );
+              return bridge
+                .getIntent(config.matrix.botUserId)
+                .join(config.matrix.roomId)
+                .then(() => {
+                  console.log(
+                    `Bot ${config.matrix.botUserId} has joined the room ${config.matrix.roomId}`,
+                  );
+                  return bridge
+                    .getIntent(config.matrix.botUserId)
+                    .sendText(
+                      config.matrix.roomId,
+                      "Hello! The bridge is now up and running.",
+                    );
+                });
+            } else {
+              console.error(`Failed to join room or send greeting: ${err}`);
+            }
           });
       })
       .catch((err) => {
@@ -124,50 +154,61 @@ new Cli({
   },
 }).run();
 
-// IMAP Client to check for new emails
+function openInbox(cb) {
+  imap.openBox("INBOX", false, cb);
+}
+
 function checkEmail() {
-  imaps
-    .connect(imapConfig)
-    .then((connection) => {
-      return connection.openBox("INBOX").then(() => {
-        const searchCriteria = ["UNSEEN"];
-        const fetchOptions = {
-          bodies: ["HEADER.FIELDS (FROM TO SUBJECT DATE)", "TEXT"],
-          markSeen: true,
-        };
-        return connection
-          .search(searchCriteria, fetchOptions)
-          .then((messages) => {
-            messages.forEach((message) => {
-              if (message.parts) {
-                const textPart = message.parts.find(
-                  (part) => part.which === "TEXT",
-                );
-                const headerPart = message.parts.find(
-                  (part) =>
-                    part.which === "HEADER.FIELDS (FROM TO SUBJECT DATE)",
-                );
-                if (textPart && headerPart) {
-                  const headers = Imap.parseHeader(headerPart.body);
-                  const emailFrom = headers.from
-                    ? headers.from[0].replace('@', '_')
-                    : "unknown_sender";
-                  const { plainText } = parseEmail(textPart.body);
-                  const intent = bridge.getIntent('@mail_' + emailFrom + ":" + config.matrix.domain);
-                  intent.sendText(config.matrix.roomId, plainText);
-                } else {
-                  console.log("No text part found for message:", message);
-                }
-              } else {
-                console.log("No parts found for message:", message);
-              }
+  imap.once("ready", () => {
+    openInbox((err, box) => {
+      if (err) throw err;
+      imap.search(["UNSEEN"], (err, results) => {
+        if (err) throw err;
+        if (!results || !results.length) {
+          console.log("No new emails");
+          imap.end();
+          return;
+        }
+        const f = imap.fetch(results, { bodies: "" });
+        f.on("message", (msg, seqno) => {
+          msg.on("body", (stream, info) => {
+            simpleParser(stream, (err, mail) => {
+              if (err) throw err;
+              const emailFrom = mail.from.value[0].address.replace("@", "_");
+              const plainText = mail.text || "No content";
+              const intent = bridge.getIntent(
+                "@mail_" + emailFrom + ":" + config.matrix.domain,
+              );
+              intent.sendText(config.matrix.roomId, plainText);
             });
           });
+          msg.once("attributes", (attrs) => {
+            imap.addFlags(attrs.uid, ["\\Seen"], (err) => {
+              if (err) throw err;
+              console.log("Marked as read");
+            });
+          });
+        });
+        f.once("error", (err) => {
+          console.log("Fetch error: " + err);
+        });
+        f.once("end", () => {
+          console.log("Done fetching all messages!");
+          imap.end();
+        });
       });
-    })
-    .catch((err) => {
-      console.log("Error checking email:", err);
     });
+  });
+
+  imap.once("error", (err) => {
+    console.log(err);
+  });
+
+  imap.once("end", () => {
+    console.log("Connection ended");
+  });
+
+  imap.connect();
 }
 
 // Checking for new emails every minute

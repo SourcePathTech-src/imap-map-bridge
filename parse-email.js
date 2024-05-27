@@ -1,4 +1,4 @@
-import atob from 'atob';
+import atob from "atob";
 
 export const parseEmail = (rawMailBody) => {
   // Function to decode base64
@@ -6,8 +6,10 @@ export const parseEmail = (rawMailBody) => {
     return decodeURIComponent(escape(atob(base64)));
   }
 
-  const plainTextRegex = /Content-Type: text\/plain; charset=utf-8\s+Content-Transfer-Encoding: base64\s+([\s\S]+?)\s+--/;
-  const htmlTextRegex = /Content-Type: text\/html; charset=utf-8\s+Content-Transfer-Encoding: base64\s+([\s\S]+?)\s+--/;
+  const plainTextRegex =
+    /Content-Type: text\/plain; charset=utf-8\s+Content-Transfer-Encoding: base64\s+([\s\S]+?)\s+--/;
+  const htmlTextRegex =
+    /Content-Type: text\/html; charset=utf-8\s+Content-Transfer-Encoding: base64\s+([\s\S]+?)\s+--/;
 
   const plainTextMatch = rawMailBody.match(plainTextRegex);
   const htmlTextMatch = rawMailBody.match(htmlTextRegex);
@@ -26,4 +28,4 @@ export const parseEmail = (rawMailBody) => {
     plainText: plainText,
     htmlText: htmlText,
   };
-}
+};
