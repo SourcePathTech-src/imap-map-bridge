@@ -77,20 +77,45 @@ new Cli({
             return;
           }
 
-          console.log("Body content:", event.content.body);
-          const mailOptions = {
-            from: config.smtp.auth.user,
-            to: "target@yopmail.com", // FIXME: Make configurable
-            subject: "Matrix Message",
-            text: event.content.body,
-          };
-          transporter.sendMail(mailOptions, function (error, info) {
-            if (error) {
-              console.log("Error sending email:", error);
-            } else {
-              console.log("Email sent:", info.response);
-            }
-          });
+          const message = event.content.body;
+          const lines = message.split("\n");
+          if (lines[0].startsWith("!mail send ")) {
+            const to = lines[0].substring(11).trim();
+            const subject = lines[1];
+            const body = lines.slice(2).join("\n");
+
+            const mailOptions = {
+              from: config.smtp.auth.user,
+              to: to,
+              subject: subject,
+              text: body,
+            };
+
+            transporter.sendMail(mailOptions, function (error, info) {
+              if (error) {
+                console.log("Error sending email:", error);
+              } else {
+                console.log("Email sent:", info.response);
+                bridge
+                  .getIntent(config.matrix.botUserId)
+                  .sendText(
+                    event.room_id,
+                    `Email sent to ${to} with subject: ${subject}`,
+                  );
+              }
+            });
+          } else if (message === "!mail help") {
+            bridge
+              .getIntent(config.matrix.botUserId)
+              .sendText(
+                event.room_id,
+                "To send an email, use the following format:\n\n!mail send recipient@example.com\nSubject Line\nEmail body content (can be multiple lines)",
+              );
+          } else {
+            bridge
+              .getIntent(config.matrix.botUserId)
+              .sendText(event.room_id, "Use `!mail help` for more info");
+          }
         },
       },
     });
